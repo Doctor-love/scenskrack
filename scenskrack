@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2022 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+set -o pipefail -o errexit
+shopt -s extglob
+IFS=$'\n'
+
+INPUT_DIRECTORY="${1}"
+OUTPUT_DIRECTORY="${2}"
+
+if ! [[ -d "${INPUT_DIRECTORY}" ]] || ! [[ -d "${OUTPUT_DIRECTORY}" ]]; then
+	echo "Usage: ${0} INPUT_DIRECTORY OUTPUT_DIRECTORY"
+	exit 3
+
+fi
+
+# -------------------------------------------------------------------------------------------------
+WORK_DIRECTORY="$(mktemp --directory --suffix _scenskrack)"
+echo "Preparing temporary work directory \"${WORK_DIRECTORY}\""
+cp -pr ${INPUT_DIRECTORY}/!(diagrams|qr_codes) "${WORK_DIRECTORY}/"
+
+echo "Preparing output directory \"${OUTPUT_DIRECTORY}\""
+
+for ASSET_TYPE in images diagrams qr_codes resources; do
+	mkdir -p "${OUTPUT_DIRECTORY}/${ASSET_TYPE}"
+
+done	
+
+# -------------------------------------------------------------------------------------------------
+# The execution of drawio is a bit messy.
+# Since we are running inside a container, we need to execute it with a headless X server, disable
+# the Chromium sandbox used by Electron and mute various X/GPU related error messages.
+#
+# Furthermore, drawio doesn't really use exit codes to signal problems related to diagram exports,
+# so as a work-around it's output is filtered through grep statements.
+DIAGRAMS_DIRECTORY="${INPUT_DIRECTORY}/diagrams"
+
+if [[ -d "${DIAGRAMS_DIRECTORY}" ]]; then
+	echo "Exporting/Generating SVGs from drawio files in \"${DIAGRAMS_DIRECTORY}\""
+
+	mkdir -p "${WORK_DIRECTORY}/diagrams"
+
+	DRAWIO_OUTPUT="$(xvfb-run drawio \
+		--enable-plugins \
+		--export "${DIAGRAMS_DIRECTORY}" \
+		--output "${WORK_DIRECTORY}/diagrams" --format svg \
+		--no-sandbox 2>&1)"
+
+	echo "${DRAWIO_OUTPUT}" | grep \
+		--invert-match --fixed-strings \
+		-e "ERROR:bus.cc" -e "libva error" -e "ERROR:gpu_" \
+		-e "ERROR:viz_main_impl.cc" -e "ERROR:command_buffer_proxy_impl.cc"
+
+	if (echo "${DRAWIO_OUTPUT}" | grep --quiet --fixed-strings "Error: "); then
+		exit 1
+	
+	fi
+
+	if ! (echo "${DRAWIO_OUTPUT}" | grep --quiet --fixed-strings ".drawio ->"); then
+		exit 1
+
+	fi
+
+fi
+
+# -------------------------------------------------------------------------------------------------
+QR_CODES_DIRECTORY="${INPUT_DIRECTORY}/qr_codes"
+
+if [[ -d "${QR_CODES_DIRECTORY}" ]]; then
+	mkdir -p "${WORK_DIRECTORY}/qr_codes"
+
+	for INPUT_FILE in ${QR_CODES_DIRECTORY}/*; do 
+		echo "Generating QR code based on data in \"${INPUT_FILE}\""
+		qrencode \
+			--size 6 --type SVG --background 000000 --foreground ffffff \
+			--read-from "${INPUT_FILE}" \
+			--output "${WORK_DIRECTORY}/qr_codes/$(basename "${INPUT_FILE}").svg"
+
+	done
+
+fi
+
+# -------------------------------------------------------------------------------------------------
+for ASSET_TYPE in images diagrams qr_codes resources; do
+	ASSET_DIRECTORY="${WORK_DIRECTORY}/${ASSET_TYPE}"
+
+	if [[ -d "${ASSET_DIRECTORY}" ]]; then
+		echo "Copying data from \"${ASSET_DIRECTORY}\""
+		cp -r "${ASSET_DIRECTORY}/." "${OUTPUT_DIRECTORY}/${ASSET_TYPE}/"
+
+	fi
+
+done
+
+# -------------------------------------------------------------------------------------------------
+echo "Running Marp CLI to generate HTML slides"
+marp --allow-local-files --input-dir "${WORK_DIRECTORY}" --output "${OUTPUT_DIRECTORY}" 
+
+echo "Running Marp CLI to generate PDF slides"
+marp \
+	--allow-local-files \
+	--input-dir "${WORK_DIRECTORY}" --output "${OUTPUT_DIRECTORY}" \
+	--pdf --pdf-notes
+
+# -------------------------------------------------------------------------------------------------
+echo "Creating ZIP file of resources directory"
+(cd "${OUTPUT_DIRECTORY}"; zip --recurse-paths resources.zip -- resources)
+
+echo "Creating ZIP file of PDFs and resources directory"
+(cd "${OUTPUT_DIRECTORY}"; zip --recurse-paths presentation.zip -- resources *.pdf)
+
+# -------------------------------------------------------------------------------------------------
+if [[ "$(ls -1 -- ${OUTPUT_DIRECTORY}/*.pdf | wc -l)" != "1" ]]; then
+	echo "Merging multiple PDF files"
+	pdfunite \
+		${OUTPUT_DIRECTORY}/!(presentations_merged).pdf \
+		"${OUTPUT_DIRECTORY}/presentations_merged.pdf"
+
+fi
+
+# -------------------------------------------------------------------------------------------------
+echo "Cleaning up temporary work directory \"${WORK_DIRECTORY}\""
+rm -rf -- "${WORK_DIRECTORY}"

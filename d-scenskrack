@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2022 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+TAG="${1}"
+
+if [[ -z "${TAG}" ]]; then
+	if [[ -f "docker_tag" ]]; then
+		TAG="$(cat image_tag)"
+	
+	else
+		TAG="latest"
+
+	fi
+
+fi
+
+mkdir -p output
+docker \
+	run --rm --network none \
+	--volume "${PWD}:/input" --volume "${PWD}/output:/output" \
+	"scenskrack:${TAG}"
