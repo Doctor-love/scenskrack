@@ -15,8 +15,16 @@ if [[ -z "${TAG}" ]]; then
 
 fi
 
+EXTRA_ARGS=""
+
+if [[ -f variables ]]; then
+	EXTRA_ARGS="${EXTRA_ARGS} --env-file variables"
+
+fi
+
 mkdir -p output
 docker \
 	run --rm --network none \
 	--volume "${PWD}:/input" --volume "${PWD}/output:/output" \
+	${EXTRA_ARGS} \
 	"scenskrack:${TAG}"

@@ -18,7 +18,7 @@ fi
 # -------------------------------------------------------------------------------------------------
 WORK_DIRECTORY="$(mktemp --directory --suffix _scenskrack)"
 echo "Preparing temporary work directory \"${WORK_DIRECTORY}\""
-cp -pr ${INPUT_DIRECTORY}/!(diagrams|qr_codes) "${WORK_DIRECTORY}/"
+cp -pr ${INPUT_DIRECTORY}/!(diagrams|qr_codes|README.md) "${WORK_DIRECTORY}/"
 
 echo "Preparing output directory \"${OUTPUT_DIRECTORY}\""
 
@@ -90,6 +90,36 @@ for ASSET_TYPE in images diagrams qr_codes resources; do
 		cp -r "${ASSET_DIRECTORY}/." "${OUTPUT_DIRECTORY}/${ASSET_TYPE}/"
 
 	fi
+
+done
+
+# -------------------------------------------------------------------------------------------------
+if ! [[ -f "${INPUT_DIRECTORY}/index.md" ]]; then
+	echo "Creating merged presentation of source files"
+
+	PRESENTATION_FILES=${INPUT_DIRECTORY}/+([[:digit:]][[:digit:]])-*.md
+
+	# In all presentation files, except for the first one, we strip meta-data as this would
+	# otherwise be interpreted as content. We keep the first presentation file meta-data as
+	# it could specify formatting rules or similar
+	cat "$(echo ${PRESENTATION_FILES} | cut -d ' ' -f 1)" > "${WORK_DIRECTORY}/index.md"
+
+	for PRESENTATION_FILE in $(echo ${PRESENTATION_FILES} | cut -d ' ' -f 2- | tr ' ' '\n'); do
+		# We need to remove the first section of meta-data to prevent it from being
+		# interpreted as slide content when their concatenated
+		echo "" >> "${WORK_DIRECTORY}/index.md"
+		cat "${PRESENTATION_FILE}" | sed '2,/^---$/d' >> "${WORK_DIRECTORY}/index.md"
+	done
+
+fi
+
+# -------------------------------------------------------------------------------------------------
+# Perform search and replace for templated variables from environment (such as "S_VAR_EMAIL")
+for ENV_VARIABLE in $(env | grep -E "^S_VAR_.+" | cut -d '=' -f 1); do
+	echo "Searching and replacing variable \"${ENV_VARIABLE}\""
+
+	VARIABLE_NAME="$(echo ${ENV_VARIABLE} | cut -d '_' -f 3-)"
+	sed -i "s|%${VARIABLE_NAME}%|${!ENV_VARIABLE}|g" ${WORK_DIRECTORY}/*.md
 
 done
 

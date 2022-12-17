@@ -1,14 +1,12 @@
 # SPDX-FileCopyrightText: 2022 Joel Rangsmo <joel@rangsmo.se>
 # SPDX-License-Identifier: GPL-2.0-or-later
-
-# Debian 10 is used as the drawio deb file specifies dependency versions not available in Debian 11
-FROM debian:buster-slim
+FROM debian:bullseye-slim
 
 # Arguments/Variables for artifacts
-ARG DRAWIO_URL=https://github.com/jgraph/drawio-desktop/releases/download/v19.0.3/drawio-amd64-19.0.3.deb
-ARG DRAWIO_CHECKSUM=9935516eac0f5e39ce0b2b6b1cf1419f662d06a1ff4ee712526b397786df9622
-ARG MARP_URL=https://github.com/marp-team/marp-cli/releases/download/v2.0.4/marp-cli-v2.0.4-linux.tar.gz
-ARG MARP_CHECKSUM=a18ee9243f103cb2983799e05648acd1af47db7f4d092393aca06e5f54e642ba
+ARG DRAWIO_URL=https://github.com/jgraph/drawio-desktop/releases/download/v20.6.2/drawio-amd64-20.6.2.deb
+ARG DRAWIO_CHECKSUM=08d6b868d6fb2c1d3187e28498285058b0a59398dbff31cf4c26f2955abe734a
+ARG MARP_URL=https://github.com/marp-team/marp-cli/releases/download/v2.2.2/marp-cli-v2.2.2-linux.tar.gz
+ARG MARP_CHECKSUM=4ae79f62bdad1e74263687be1211906a437c1e84994f96fcf4640809af53448c
 
 # Install container build and runtime dependencies
 RUN apt-get update \
