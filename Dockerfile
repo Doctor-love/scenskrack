@@ -1,5 +1,5 @@
-# SPDX-FileCopyrightText: 2022 Joel Rangsmo <joel@rangsmo.se>
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-FileCopyrightText: 2023 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-License-Identifier: CC0-1.0
 FROM debian:bullseye-slim
 
 # Arguments/Variables for artifacts
@@ -11,7 +11,7 @@ ARG MARP_CHECKSUM=4ae79f62bdad1e74263687be1211906a437c1e84994f96fcf4640809af5344
 # Install container build and runtime dependencies
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
-	ca-certificates chromium coreutils curl poppler-utils qrencode xauth xvfb zip \
+	ca-certificates chromium coreutils curl moreutils poppler-utils qrencode xauth xvfb zip \
 	&& rm -rf /var/lib/apt-get/lists/* \
 	&& apt-get autoremove -y
 
@@ -37,7 +37,7 @@ RUN rm -rf drawio.deb marp.tar.gz marp
 
 # Setup unprivileged user and input/output directories
 RUN mkdir /input /output
-RUN useradd --home-dir /input --shell /bin/bash app
+RUN useradd --home-dir /tmp --shell /bin/bash app
 RUN chown app:app /input /output
 
 # Install and configure script execution
@@ -45,4 +45,4 @@ COPY scenskrack /usr/local/bin/
 
 USER app
 WORKDIR /input
-CMD ["scenskrack", "/input", "/output"]
+ENTRYPOINT ["scenskrack", "-i", "/input", "-o", "/output"]

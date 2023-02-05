@@ -1,50 +1,316 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2022 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-FileCopyrightText: 2023 Joel Rangsmo <joel@rangsmo.se>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 set -o pipefail -o errexit
-shopt -s extglob
+shopt -s extglob dotglob
+START_TIME="$(date +%s)"
 IFS=$'\n'
 
-INPUT_DIRECTORY="${1}"
-OUTPUT_DIRECTORY="${2}"
+# -------------------------------------------------------------------------------------------------
+USAGE_DESCRIPTION=$(cat <<EOF
+scenskrack - Toolbox for creating version controlled presentations.
 
-if ! [[ -d "${INPUT_DIRECTORY}" ]] || ! [[ -d "${OUTPUT_DIRECTORY}" ]]; then
-	echo "Usage: ${0} INPUT_DIRECTORY OUTPUT_DIRECTORY"
-	exit 3
+USAGE
+ ${0} [-i <INPUT_DIRECTORY>]  [-o <OUTPUT_DIRECTORY>] \\ 
+      [-V <VARIABLE_FILENAME> [-p <PARTIAL_FILENAME>] [-ndsvh]
 
+OPTIONS
+ -i : Input directory containing presentation source files (default: \${PWD})
+ -o : Output directory for rendered assets and presentations (default: \${PWD}/output)
+ -V : File containing "environment style" variables for substition (default: \${PWD}/variables)
+ -p : Only render specified presentation Markdown file (relative to input directory)
+ -n : Skip cleanup of output directory and rendering of "complex assets" (diagrams, QR codes, etc.)
+ -d : Skip cleanup/removal of temporary work directory (useful for debugging)
+ -s : Skip parallel rendering of presentations and assets
+ -v : Enable verbose/debug logging
+ -h : Show this usage information
+
+EXAMPLES
+ ${0}
+ Perform full render of all source files in current directory
+
+ ${0} -p 09-animals.md -n 
+ Perform fast rendering of specific presentation file
+
+ ${0} -d -s -v
+ Run the script in full debug mode
+
+WWW
+ For more information and examples, see https://github.com/doctor-love/scenskrack
+EOF
+)
+
+# -------------------------------------------------------------------------------------------------
+for DEPENDENCY_COMMAND in drawio marp nproc pdfattach qrencode sed tput xvfb-run zip; do
+	if ! command -v "${DEPENDENCY_COMMAND}" &> /dev/null; then
+		echo "ERROR: Required command \"${DEPENDENCY_COMMAND}\" could not be found"
+		exit 1
+	fi
+done
+
+# -------------------------------------------------------------------------------------------------
+# Default values for options
+INPUT_DIRECTORY="${PWD}"
+OUTPUT_DIRECTORY="${PWD}/output"
+SUBSTITUTE_VARIABLES="false"
+VARIABLES_FILE="${PWD}/variables"
+RENDER_PARTIAL="false"
+PARTIAL_FILENAME=""
+RENDER_ASSETS="true"
+CLEAN_WORK_DIRECTORY="true"
+NUMBER_OF_PARALLEL_RENDERS="$(nproc --all)"
+VERBOSE_LOGGING="false"
+
+# -------------------------------------------------------------------------------------------------
+if tput colors &> /dev/null; then
+	TEXT_BOLD="$(tput bold)"
+	TEXT_GREEN="$(tput setaf 2)"
+	TEXT_YELLOW="$(tput setaf 3)"
+	TEXT_RED="$(tput setaf 1)"
+	FORMAT_OFF="$(tput sgr0)"
+else
+	TEXT_BOLD=""
+	TEXT_GREEN=""
+	TEXT_YELLOW=""
+	TEXT_RED=""
+	FORMAT_OFF=""
 fi
 
 # -------------------------------------------------------------------------------------------------
-WORK_DIRECTORY="$(mktemp --directory --suffix _scenskrack)"
-echo "Preparing temporary work directory \"${WORK_DIRECTORY}\""
-cp -pr ${INPUT_DIRECTORY}/!(diagrams|qr_codes|README.md) "${WORK_DIRECTORY}/"
+function log() {
+	LEVEL="${1}"
+	DATA="${2}"
+	
+	if [[ "${LEVEL}" == "DEBUG" ]] && ! ${VERBOSE_LOGGING}; then
+		return
+	fi
 
-echo "Preparing output directory \"${OUTPUT_DIRECTORY}\""
+	case "${LEVEL}" in	
+		INFO)
+			TEXT_COLOR="${TEXT_GREEN}"
+			;;
+		DEBUG)
+			TEXT_COLOR="${TEXT_YELLOW}"
+			;;
+		ERROR)
+			TEXT_COLOR="${TEXT_RED}"
+			;;
+	esac
 
-for ASSET_TYPE in images diagrams qr_codes resources; do
-	mkdir -p "${OUTPUT_DIRECTORY}/${ASSET_TYPE}"
+	echo "${TEXT_BOLD}${TEXT_COLOR}$(date -Is): ${LEVEL}: ${DATA}${FORMAT_OFF}" > /dev/stderr
 
-done	
+	if [[ "${LEVEL}" == "ERROR" ]]; then
+		exit 1
+	fi
+}
 
 # -------------------------------------------------------------------------------------------------
-# The execution of drawio is a bit messy.
-# Since we are running inside a container, we need to execute it with a headless X server, disable
-# the Chromium sandbox used by Electron and mute various X/GPU related error messages.
-#
-# Furthermore, drawio doesn't really use exit codes to signal problems related to diagram exports,
-# so as a work-around it's output is filtered through grep statements.
-DIAGRAMS_DIRECTORY="${INPUT_DIRECTORY}/diagrams"
+while getopts ':i:o:V:p:ndsvh' OPT; do
+	case "${OPT}" in
+		i)
+			INPUT_DIRECTORY="${OPTARG}"
+			;;
+		o)
+			OUTPUT_DIRECTORY="${OPTARG}"
+			;;
+		V)
+			SUBSTITUTE_VARIABLES="true"
+			VARIABLES_FILE="${OPTARG}"
+			;;
+		p)
+			RENDER_PARTIAL="true"
+			PARTIAL_FILENAME="${OPTARG}"
+			;;
+		n)
+			RENDER_ASSETS="false"
+			;;
+		d)
+			CLEAN_WORK_DIRECTORY="false"
+			;;
+		s)
+			NUMBER_OF_PARALLEL_RENDERS="1"
+			;;
 
-if [[ -d "${DIAGRAMS_DIRECTORY}" ]]; then
-	echo "Exporting/Generating SVGs from drawio files in \"${DIAGRAMS_DIRECTORY}\""
+		v)
+			VERBOSE_LOGGING="true"
+			;;
+		h)
+			echo "${USAGE_DESCRIPTION}"
+			exit 0
+			;;
+		:)
+			echo -e "${USAGE_DESCRIPTION}\n\n---"
+			log ERROR "Specified argument(s) requires a following option"
+			;;
+		?)
+			echo -e "${USAGE_DESCRIPTION}\n\n---"
+			log ERROR "Specified argument(s) are invalid"
+			;;
+	esac
+done
 
-	mkdir -p "${WORK_DIRECTORY}/diagrams"
+EXEC="parallel
+-i
+-j
+${NUMBER_OF_PARALLEL_RENDERS}"
+log DEBUG "Generated parallel base command for execution: \"$(echo "${EXEC}" | tr '\n' ' ')\""
+
+# -------------------------------------------------------------------------------------------------
+log DEBUG "Checking if input directory \"${INPUT_DIRECTORY}\" exist"
+if ! [[ -d "${INPUT_DIRECTORY}" ]]; then
+	log ERROR "Specified input directory \"${INPUT_DIRECTORY}\" doesn't exist"
+fi
+	
+log DEBUG "Checking if output directory \"${OUTPUT_DIRECTORY}\" exist"
+if ! [[ -d "${OUTPUT_DIRECTORY}" ]]; then
+	log ERROR "Specified output directory \"${OUTPUT_DIRECTORY}\" doesn't exist"
+fi
+
+log DEBUG "Validating that input and output directory are not the same"
+if [[ "${INPUT_DIRECTORY}" == "${OUTPUT_DIRECTORY}" ]]; then
+	log ERROR "Input and output directory can't be the same as specified"
+fi
+
+log DEBUG "Validating that output directory is not the same as PWD"
+if [[ "${OUTPUT_DIRECTORY}" == "${PWD}" ]]; then
+	log ERROR "Specified output directory \"${OUTPUT_DIRECTORY}\" can't be the same as \$PWD"
+fi
+
+log DEBUG "Validating that output directory is not the same as HOME"
+if [[ "${OUTPUT_DIRECTORY}" == "${HOME}" ]]; then
+	log ERROR "Specified output directory \"${OUTPUT_DIRECTORY}\" can't be the same as \$HOME"
+fi
+
+log DEBUG "Checking if output directory is empty"
+if ! [[ -z "$(ls --almost-all -- "${OUTPUT_DIRECTORY}")" ]]; then
+	CANARY_FILE="${OUTPUT_DIRECTORY}/.scenskrack-output-canary"
+
+	log DEBUG "Validating that canary file \"${CANARY_FILE}\" exist to prevent accidents"
+	if ! [[ -f "${CANARY_FILE}" ]]; then
+		log ERROR "Specified output directory is not empty and doesn't contain canary file"
+	fi
+fi
+
+log DEBUG "Checking if variable substitution is explicitly enabled or if default file exist"
+if ${SUBSTITUTE_VARIABLES} || [[ -f "${VARIABLES_FILE}" ]]; then
+	SUBSTITUTE_VARIABLES="true"
+
+	log DEBUG "Checking if specified variable substitution file \"${VARIABLES_FILE}\" exist"
+	if ! [[ -f "${VARIABLES_FILE}" ]]; then
+		log ERROR "Specified variable file \"${VARIABLES_FILE}\" doesn't exist"
+	fi
+fi
+
+log DEBUG "Checking if partial rendering is enabled"
+if ${RENDER_PARTIAL}; then
+	PARTIAL_FILENAME="${INPUT_DIRECTORY}/${PARTIAL_FILENAME}"
+
+	log DEBUG "Checking if partial input file exist"
+	if ! [[ -f "${PARTIAL_FILENAME}" ]]; then
+		log ERROR "Specified input Markdown file \"${PARTIAL_FILENAME}\" doesn't exist"
+	fi
+
+	log DEBUG "Checking if partial input file is a Markdown document"
+	if [[ "${PARTIAL_FILENAME: -3}" != ".md" ]]; then
+		log ERROR "Specified file \"${PARTIAL_FILENAME}\" doesn't have a \".md\" extension"
+	fi
+fi
+
+# -------------------------------------------------------------------------------------------------
+log DEBUG "Checking if output directory should be cleaned up"
+if ${RENDER_ASSETS} && ! [[ -z "$(ls --almost-all -- "${OUTPUT_DIRECTORY}")" ]]; then
+	log DEBUG "Cleaning up output directory \"${OUTPUT_DIRECTORY}\""
+	rm -rf -- "${OUTPUT_DIRECTORY}"/*
+fi
+
+CANARY_FILE="${OUTPUT_DIRECTORY}/.scenskrack-output-canary"
+log DEBUG "Creating output canary file \"${CANARY_FILE}\""
+touch "${CANARY_FILE}"
+
+# -------------------------------------------------------------------------------------------------
+WORK_DIRECTORY="$(mktemp --directory --suffix _scenskrack)"
+log DEBUG "Copying asset files into temporary work directory \"${WORK_DIRECTORY}\""
+cp -pr "${INPUT_DIRECTORY}/"!(diagrams|output|variables|\.*|_*|*\.md) "${WORK_DIRECTORY}/"
+
+if ${RENDER_PARTIAL}; then
+	log DEBUG "Copying partial Markdown file \"${PARTIAL_FILENAME}\" to \"${WORK_DIRECTORY}\""
+	cp -p "${PARTIAL_FILENAME}" "${WORK_DIRECTORY}/"
+else
+	log DEBUG "Copying presentation Markdown files to \"${WORK_DIRECTORY}\""
+	cp -p "${INPUT_DIRECTORY}/"!(_*|README).md "${WORK_DIRECTORY}/"
+fi
+
+SOURCE_DIAGRAMS_DIRECTORY="${INPUT_DIRECTORY}/diagrams"
+log DEBUG "Checking if diagram source files should be copied from input directory"
+if [[ -d "${SOURCE_DIAGRAMS_DIRECTORY}" ]]; then
+	log DEBUG "Copying diagram source files from \"${SOURCE_DIAGRAMS_DIRECTORY}\""
+
+	WORK_DIAGRAMS_DIRECTORY="${WORK_DIRECTORY}/diagrams"
+	mkdir -p "${WORK_DIAGRAMS_DIRECTORY}"
+	cp -p "${SOURCE_DIAGRAMS_DIRECTORY}"/*.drawio "${WORK_DIAGRAMS_DIRECTORY}/"
+fi
+
+cd "${WORK_DIRECTORY}"
+
+# -------------------------------------------------------------------------------------------------
+log DEBUG "Checking if resource directories should be created in output target"
+for RESOURCE_TYPE in diagrams qr_codes resources images; do
+	log DEBUG "Checking if directory for ${RESOURCE_TYPE} exist in \"${INPUT_DIRECTORY}\""
+
+	if [[ -d "${WORK_DIRECTORY}/${RESOURCE_TYPE}" ]]; then
+		log DEBUG "Creating output directory for resource type ${RESOURCE_TYPE}"
+		mkdir -p "${OUTPUT_DIRECTORY}/${RESOURCE_TYPE}"
+	fi
+done
+
+# -------------------------------------------------------------------------------------------------
+if ${SUBSTITUTE_VARIABLES}; then
+	log INFO "Substituting variables specified in file \"${VARIABLES_FILE}\""
+
+	for LINE in $(grep -E '.+=.+' -- "${VARIABLES_FILE}" | grep -v -E '^#.*'); do
+		log DEBUG "Processing variable substitution line \"${LINE}\""
+
+		KEY="$(echo "${LINE}" | cut -d '=' -f 1)"
+		VALUE="$(echo "${LINE}" | cut -d '=' -f 2-)"
+		log DEBUG "Extracted key \"${KEY}\" and value \"${VALUE}\" from line \"${LINE}\""
+
+		log DEBUG "Replacing variable \"${KEY}\" in work directory files"
+		${EXEC} sed -i "s|%${KEY}%|${VALUE}|g" {} -- $(find "${WORK_DIRECTORY}" -type f)
+	done
+fi
+
+# -------------------------------------------------------------------------------------------------
+IMAGES_DIRECTORY="${WORK_DIRECTORY}/images"
+log DEBUG "Checking if images directory should be copied to output target"
+if [[ -d "${IMAGES_DIRECTORY}" ]]; then
+	log DEBUG "Copying image files from \"${IMAGES_DIRECTORY}\""
+	cp -pr "${IMAGES_DIRECTORY}/"!(_*) "${OUTPUT_DIRECTORY}/images/"
+fi
+
+# -------------------------------------------------------------------------------------------------
+QR_CODES_DIRECTORY="${WORK_DIRECTORY}/qr_codes"
+log DEBUG "Checking if QR codes directory should be copied to output target"
+if [[ -d "${QR_CODES_DIRECTORY}" ]] && ${RENDER_ASSETS}; then
+	log INFO "Generating QR codes from \"${QR_CODES_DIRECTORY}\""
+
+	(cd "${QR_CODES_DIRECTORY}" && ${EXEC} qrencode \
+		--size 6 --type SVG --background 000000 --foreground ffffff \
+		--read-from {} --output "{}.svg" -- !(_*|*\.license))
+
+	cp -p "${QR_CODES_DIRECTORY}"/*.svg "${OUTPUT_DIRECTORY}/qr_codes/"
+fi
+
+# -------------------------------------------------------------------------------------------------
+DIAGRAMS_DIRECTORY="${WORK_DIRECTORY}/diagrams"
+log DEBUG "Checking if diagrams should be rendered"
+if [[ -d "${DIAGRAMS_DIRECTORY}" ]] && ${RENDER_ASSETS}; then
+	log INFO "Rendering diagrams from \"${DIAGRAMS_DIRECTORY}\""
 
 	DRAWIO_OUTPUT="$(xvfb-run drawio \
 		--enable-plugins \
 		--export "${DIAGRAMS_DIRECTORY}" \
-		--output "${WORK_DIRECTORY}/diagrams" --format svg \
+		--output "${DIAGRAMS_DIRECTORY}" --format svg \
 		--no-sandbox 2>&1)"
 
 	echo "${DRAWIO_OUTPUT}" | grep \
@@ -52,103 +318,88 @@ if [[ -d "${DIAGRAMS_DIRECTORY}" ]]; then
 		-e "ERROR:bus.cc" -e "libva error" -e "ERROR:gpu_" \
 		-e "ERROR:viz_main_impl.cc" -e "ERROR:command_buffer_proxy_impl.cc"
 
-	if (echo "${DRAWIO_OUTPUT}" | grep --quiet --fixed-strings "Error: "); then
-		exit 1
-	
+	if \
+		(echo "${DRAWIO_OUTPUT}" | grep --quiet --fixed-strings "Error: ") || \
+		! (echo "${DRAWIO_OUTPUT}" | grep --quiet --fixed-strings ".drawio ->"); then
+		log ERROR "Failed to render diagrams from \"${DIAGRAMS_DIRECTORY}\""
 	fi
 
-	if ! (echo "${DRAWIO_OUTPUT}" | grep --quiet --fixed-strings ".drawio ->"); then
-		exit 1
-
-	fi
-
+	cp -p "${DIAGRAMS_DIRECTORY}"/*.svg "${OUTPUT_DIRECTORY}/diagrams/"
 fi
 
 # -------------------------------------------------------------------------------------------------
-QR_CODES_DIRECTORY="${INPUT_DIRECTORY}/qr_codes"
+RESOURCES_DIRECTORY="${WORK_DIRECTORY}/resources"
+log DEBUG "Checking if resources should be copied"
+if [[ -d "${RESOURCES_DIRECTORY}" ]]; then
+	log DEBUG "Copying resource files from \"${RESOURCES_DIRECTORY}\""
+	cp -pr "${RESOURCES_DIRECTORY}/"!(_*) "${OUTPUT_DIRECTORY}/resources/"
+fi
 
-if [[ -d "${QR_CODES_DIRECTORY}" ]]; then
-	mkdir -p "${WORK_DIRECTORY}/qr_codes"
+# -------------------------------------------------------------------------------------------------
+log DEBUG "Checking if merged presentation index file should be created"
+if ! ${RENDER_PARTIAL} && ! [[ -f "${WORK_DIRECTORY}/index.md" ]]; then
+	log INFO "Merging presentation Markdown files as \"index.md\" doesn't exist"
 
-	for INPUT_FILE in ${QR_CODES_DIRECTORY}/*; do 
-		echo "Generating QR code based on data in \"${INPUT_FILE}\""
-		qrencode \
-			--size 6 --type SVG --background 000000 --foreground ffffff \
-			--read-from "${INPUT_FILE}" \
-			--output "${WORK_DIRECTORY}/qr_codes/$(basename "${INPUT_FILE}").svg"
+	FIRST_MARKDOWN_FILE_PROCESSED="false"
+	for MARKDOWN_FILE in "${WORK_DIRECTORY}"/*.md; do
+		log DEBUG "Merging data from presentation file \"${MARKDOWN_FILE}\""
 
+		if ! ${FIRST_MARKDOWN_FILE_PROCESSED}; then
+			cat "${MARKDOWN_FILE}" > "${WORK_DIRECTORY}/index.md"
+			FIRST_MARKDOWN_FILE_PROCESSED="true"
+		else
+			log DEBUG "Stripping meta-data from \"${MARKDOWN_FILE}\" for merging"
+			echo >> "${WORK_DIRECTORY}/index.md"
+			cat "${MARKDOWN_FILE}" | sed '2,/^---$/d' >> "${WORK_DIRECTORY}/index.md"
+		fi
 	done
-
 fi
 
 # -------------------------------------------------------------------------------------------------
-for ASSET_TYPE in images diagrams qr_codes resources; do
-	ASSET_DIRECTORY="${WORK_DIRECTORY}/${ASSET_TYPE}"
-
-	if [[ -d "${ASSET_DIRECTORY}" ]]; then
-		echo "Copying data from \"${ASSET_DIRECTORY}\""
-		cp -r "${ASSET_DIRECTORY}/." "${OUTPUT_DIRECTORY}/${ASSET_TYPE}/"
-
-	fi
-
-done
-
-# -------------------------------------------------------------------------------------------------
-if ! [[ -f "${INPUT_DIRECTORY}/index.md" ]]; then
-	echo "Creating merged presentation of source files"
-
-	PRESENTATION_FILES=${INPUT_DIRECTORY}/+([[:digit:]][[:digit:]])-*.md
-
-	# In all presentation files, except for the first one, we strip meta-data as this would
-	# otherwise be interpreted as content. We keep the first presentation file meta-data as
-	# it could specify formatting rules or similar
-	cat "$(echo ${PRESENTATION_FILES} | cut -d ' ' -f 1)" > "${WORK_DIRECTORY}/index.md"
-
-	for PRESENTATION_FILE in $(echo ${PRESENTATION_FILES} | cut -d ' ' -f 2- | tr ' ' '\n'); do
-		# We need to remove the first section of meta-data to prevent it from being
-		# interpreted as slide content when their concatenated
-		echo "" >> "${WORK_DIRECTORY}/index.md"
-		cat "${PRESENTATION_FILE}" | sed '2,/^---$/d' >> "${WORK_DIRECTORY}/index.md"
-	done
-
-fi
-
-# -------------------------------------------------------------------------------------------------
-# Perform search and replace for templated variables from environment (such as "S_VAR_EMAIL")
-for ENV_VARIABLE in $(env | grep -E "^S_VAR_.+" | cut -d '=' -f 1); do
-	echo "Searching and replacing variable \"${ENV_VARIABLE}\""
-
-	VARIABLE_NAME="$(echo ${ENV_VARIABLE} | cut -d '_' -f 3-)"
-	sed -i "s|%${VARIABLE_NAME}%|${!ENV_VARIABLE}|g" ${WORK_DIRECTORY}/*.md
-
-done
-
-# -------------------------------------------------------------------------------------------------
-echo "Running Marp CLI to generate HTML slides"
+log INFO "Running Marp CLI to generate HTML slides"
 marp --allow-local-files --input-dir "${WORK_DIRECTORY}" --output "${OUTPUT_DIRECTORY}" 
 
-echo "Running Marp CLI to generate PDF slides"
+log INFO "Running Marp CLI to generate PDF slides"
 marp \
 	--allow-local-files \
 	--input-dir "${WORK_DIRECTORY}" --output "${OUTPUT_DIRECTORY}" \
-	--pdf --pdf-notes
+	--pdf --pdf-notes 2>&1 | grep -v -F "Insecure local file accessing is enabled" 1>&2
 
 # -------------------------------------------------------------------------------------------------
-echo "Creating ZIP file of resources directory"
-(cd "${OUTPUT_DIRECTORY}"; zip --recurse-paths resources.zip -- resources)
-
-echo "Creating ZIP file of PDFs and resources directory"
-(cd "${OUTPUT_DIRECTORY}"; zip --recurse-paths presentation.zip -- resources *.pdf)
-
-# -------------------------------------------------------------------------------------------------
-if [[ "$(ls -1 -- ${OUTPUT_DIRECTORY}/*.pdf | wc -l)" != "1" ]]; then
-	echo "Merging multiple PDF files"
-	pdfunite \
-		${OUTPUT_DIRECTORY}/!(presentations_merged).pdf \
-		"${OUTPUT_DIRECTORY}/presentations_merged.pdf"
-
+log DEBUG "Checking if ZIP file should be created for resources directory"
+if ${RENDER_PARTIAL}; then
+	log DEBUG "Skipping generation of ZIP files as partial rendering is enabled"
+elif ! ${RENDER_ASSETS}; then
+	log DEBUG "Skipping generation of ZIP files as asset rendering is disabled"
+elif [[ -d "${RESOURCES_DIRECTORY}" ]]; then
+	log INFO "Creating ZIP file of resources directory and PDF presentation files"
+	(cd "${OUTPUT_DIRECTORY}"; zip --recurse-paths resources.zip -- resources)
+	(cd "${OUTPUT_DIRECTORY}"; zip --recurse-paths presentation.zip -- resources *.pdf)
+else
+	log INFO "Creating ZIP file of PDF presentation files"
+	(cd "${OUTPUT_DIRECTORY}"; zip --recurse-paths presentation.zip -- *.pdf)
 fi
 
 # -------------------------------------------------------------------------------------------------
-echo "Cleaning up temporary work directory \"${WORK_DIRECTORY}\""
-rm -rf -- "${WORK_DIRECTORY}"
+log DEBUG "Checking if resources ZIP file should be attached to PDF index file"
+if ${RENDER_ASSETS} && ! ${RENDER_PARTIAL} && [[ -d "${RESOURCES_DIRECTORY}" ]]; then
+	log INFO "Attaching resources ZIP archive to index PDF file of presentation(s)"
+
+	# Input and output can't be the same file, nor output exist
+	mv "${OUTPUT_DIRECTORY}/index.pdf" "${WORK_DIRECTORY}/index.pdf"
+	{ echo "Attaching..."; pdfattach \
+		"${WORK_DIRECTORY}/index.pdf" \
+		"${OUTPUT_DIRECTORY}/resources.zip" \
+		"${OUTPUT_DIRECTORY}/index.pdf"; } 2>&1 | grep -v -F "Syntax Warning: " 1>&2
+fi
+
+# -------------------------------------------------------------------------------------------------
+log DEBUG "Checking if work directory \"${WORK_DIRECTORY}\" should be clean up/deleted"
+if ${CLEAN_WORK_DIRECTORY}; then
+	log DEBUG "Removing work directory \"${WORK_DIRECTORY}\""
+	rm -rf -- "${WORK_DIRECTORY}"
+fi
+
+# -------------------------------------------------------------------------------------------------
+END_TIME="$(date +%s)"
+log INFO "Successfully completed rendering/packaging after $(( END_TIME - START_TIME )) seconds"

@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-License-Identifier: CC0-1.0
+
+# Variables specified as key-value.
+# Any occurrence of "%KEY%" in the included input files will be replaced by "VALUE"
+CONTACT_EMAIL=hello@example.com
+COPYRIGHT_TEXT=© 2023 Joel Rangsmo (CC0 1.0)

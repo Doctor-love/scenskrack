@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2023 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-License-Identifier: CC0-1.0
+
+# These directories are used for output/debugging and should not be tracked in VCS
+output
+_tmp

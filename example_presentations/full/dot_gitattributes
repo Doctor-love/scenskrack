@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: 2023 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-License-Identifier: CC0-1.0
+
+# Usage of Git LFS (https://git-lfs.com/) for large assets such as images is heavily recommended
+# to keep Git/collaborators snappy and happy
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.png filter=lfs diff=lfs merge=lfs -text
