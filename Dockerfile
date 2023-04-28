@@ -3,10 +3,10 @@
 FROM debian:bullseye-slim
 
 # Arguments/Variables for artifacts
-ARG DRAWIO_URL=https://github.com/jgraph/drawio-desktop/releases/download/v20.6.2/drawio-amd64-20.6.2.deb
-ARG DRAWIO_CHECKSUM=08d6b868d6fb2c1d3187e28498285058b0a59398dbff31cf4c26f2955abe734a
-ARG MARP_URL=https://github.com/marp-team/marp-cli/releases/download/v2.2.2/marp-cli-v2.2.2-linux.tar.gz
-ARG MARP_CHECKSUM=4ae79f62bdad1e74263687be1211906a437c1e84994f96fcf4640809af53448c
+ARG DRAWIO_URL=https://github.com/jgraph/drawio-desktop/releases/download/v21.2.1/drawio-amd64-21.2.1.deb
+ARG DRAWIO_CHECKSUM=66ee32baace526728c4ea4c949daa29bfc5a260bf78ed9436401dc84983b9ffb
+ARG MARP_URL=https://github.com/marp-team/marp-cli/releases/download/v2.5.0/marp-cli-v2.5.0-linux.tar.gz
+ARG MARP_CHECKSUM=bdcfa88e44aec6d77b5cd5b95b3b21f203081334c782e2d5b69d484b72c89667
 
 # Install container build and runtime dependencies
 RUN apt-get update \

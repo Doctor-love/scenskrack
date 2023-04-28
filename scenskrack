@@ -62,6 +62,9 @@ CLEAN_WORK_DIRECTORY="true"
 NUMBER_OF_PARALLEL_RENDERS="$(nproc --all)"
 VERBOSE_LOGGING="false"
 
+# Timeout for Marp
+export PUPPETEER_TIMEOUT="0"
+
 # -------------------------------------------------------------------------------------------------
 if tput colors &> /dev/null; then
 	TEXT_BOLD="$(tput bold)"
@@ -357,13 +360,16 @@ fi
 
 # -------------------------------------------------------------------------------------------------
 log INFO "Running Marp CLI to generate HTML slides"
-marp --allow-local-files --input-dir "${WORK_DIRECTORY}" --output "${OUTPUT_DIRECTORY}" 
+${EXEC} marp \
+  {}.md --allow-local-files --output "${OUTPUT_DIRECTORY}/{}.html" \
+  -- $(basename --suffix .md *.md)
 
 log INFO "Running Marp CLI to generate PDF slides"
-marp \
-	--allow-local-files \
-	--input-dir "${WORK_DIRECTORY}" --output "${OUTPUT_DIRECTORY}" \
-	--pdf --pdf-notes 2>&1 | grep -v -F "Insecure local file accessing is enabled" 1>&2
+${EXEC} marp \
+  {}.md --allow-local-files --output "${OUTPUT_DIRECTORY}/{}.pdf" \
+  --pdf --pdf-notes \
+  -- $(basename --suffix .md *.md) 2>&1 \
+  | grep -v -F "Insecure local file accessing is enabled" 1>&2
 
 # -------------------------------------------------------------------------------------------------
 log DEBUG "Checking if ZIP file should be created for resources directory"
