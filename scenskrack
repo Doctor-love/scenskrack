@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2023 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-FileCopyrightText: 2024 Joel Rangsmo <joel@rangsmo.se>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 set -o pipefail -o errexit
@@ -64,6 +64,8 @@ VERBOSE_LOGGING="false"
 
 # Timeout for Marp
 export PUPPETEER_TIMEOUT="0"
+# Permit running multiple browser processes for PDF rendering
+export PUPPETEER_HEADLESS_MODE="old"
 
 # -------------------------------------------------------------------------------------------------
 if tput colors &> /dev/null; then

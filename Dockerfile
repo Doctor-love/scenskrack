@@ -15,8 +15,8 @@ RUN apt-get update \
 	&& apt-get autoremove -y
 
 # Download, validate and install Drawio artifact
-ARG DRAWIO_URL=https://github.com/jgraph/drawio-desktop/releases/download/v22.0.3/drawio-amd64-22.0.3.deb
-ARG DRAWIO_CHECKSUM=3e1a98c4ca64694393a9ba0406104e50418cd0dd6fef193a6f093ad267abadde
+ARG DRAWIO_URL=https://github.com/jgraph/drawio-desktop/releases/download/v24.7.17/drawio-amd64-24.7.17.deb
+ARG DRAWIO_CHECKSUM=372fd820d93a30068029a5a809bc81080ee7674b41ac81a4cc8311dec3f065fb
 WORKDIR /tmp
 RUN curl --location --output drawio.deb $DRAWIO_URL \
 		&& echo "$DRAWIO_CHECKSUM drawio.deb" > SHA256SUMS \
@@ -27,8 +27,8 @@ RUN curl --location --output drawio.deb $DRAWIO_URL \
 		&& rm -rf drawio.deb SHA256SUMS
 
 # Download, validate and install Marp CLI artifact
-ARG MARP_URL=https://github.com/marp-team/marp-cli/releases/download/v3.4.0/marp-cli-v3.4.0-linux.tar.gz
-ARG MARP_CHECKSUM=dbf95eb2c708913a59be9e1f01bde135e0851a7d8ef7b0034aa9ffe74389012b
+ARG MARP_URL=https://github.com/marp-team/marp-cli/releases/download/v4.0.0/marp-cli-v4.0.0-linux.tar.gz
+ARG MARP_CHECKSUM=508c6447f22d869236fc77169a2b37b98a15ba0252eaf2ea4a28dd95c3df2718
 WORKDIR /tmp
 RUN curl --location --output marp.tar.gz $MARP_URL \
 		&& echo "$MARP_CHECKSUM marp.tar.gz" > SHA256SUMS \
