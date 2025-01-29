@@ -1,5 +1,5 @@
 <!--
-SPDX-FileCopyrightText: 2023 Joel Rangsmo <joel@rangsmo.se>
+SPDX-FileCopyrightText: 2025 Joel Rangsmo <joel@rangsmo.se>
 SPDX-License-Identifier: CC0-1.0
 -->
 
@@ -93,6 +93,7 @@ The beautiful tree graph below shows an overview of an example source directory 
 |-- "README.md
 |-- "resources
 |   `-- "example_code.py"
+|-- "order"
 `-- "variables"
 ```
 
@@ -101,7 +102,7 @@ The following sections describes these files and directories.
 
 #### Markdown files
 All files with ".md" as their suffix (except the excluded ones listed below) are treated as 
-(Marp]((https://marp.app) slide decks. If no file called "index.md" exist in the source directory,
+([Marp]((https://marp.app) slide decks. If no file called "index.md" exist in the source directory,
 scenskrack will merge slide decks (in alphanumeric order) into "index.html" and "index.pdf". If you
 only want to use one slide deck for your presentation, name the source file "index.md".
 
@@ -130,6 +131,12 @@ scenskrack uses the "qrencode" utility to convert text files containing URLs/URI
 Files stored in the "resources" source directory are bundled in an output ZIP archive that is also
 injected into "index.pdf" as a PDF attachment. Useful for thing such as lab exercises and example
 source code related to the presentation(s).
+
+
+#### Order file
+The "order" file enables overriding the default alphanumeric ordering of Markdown files for merged
+slide decks. Specify relative path for Markdown files, one per line. Empty lines and lines
+beginning with the hash/number character ("#") are ignored.
 
 
 #### Variable file

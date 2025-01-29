@@ -18,6 +18,7 @@ USAGE
 OPTIONS
  -i : Input directory containing presentation source files (default: \${PWD})
  -o : Output directory for rendered assets and presentations (default: \${PWD}/output)
+ -O : File containing ordering of merged presentations (default: \${PWD}/order)
  -V : File containing "environment style" variables for substition (default: \${PWD}/variables)
  -p : Only render specified presentation Markdown file (relative to input directory)
  -n : Skip cleanup of output directory and rendering of "complex assets" (diagrams, QR codes, etc.)
@@ -53,6 +54,8 @@ done
 # Default values for options
 INPUT_DIRECTORY="${PWD}"
 OUTPUT_DIRECTORY="${PWD}/output"
+CUSTOM_ORDERING="false"
+ORDER_FILE="${PWD}/order"
 SUBSTITUTE_VARIABLES="false"
 VARIABLES_FILE="${PWD}/variables"
 RENDER_PARTIAL="false"
@@ -111,13 +114,17 @@ function log() {
 }
 
 # -------------------------------------------------------------------------------------------------
-while getopts ':i:o:V:p:ndsvh' OPT; do
+while getopts ':i:o:O:V:p:ndsvh' OPT; do
 	case "${OPT}" in
 		i)
 			INPUT_DIRECTORY="${OPTARG}"
 			;;
 		o)
 			OUTPUT_DIRECTORY="${OPTARG}"
+			;;
+		O)
+			CUSTOM_ORDERING="true"
+			ORDER_FILE="${OPTARG}"
 			;;
 		V)
 			SUBSTITUTE_VARIABLES="true"
@@ -194,6 +201,16 @@ if ! [[ -z "$(ls --almost-all -- "${OUTPUT_DIRECTORY}")" ]]; then
 	log DEBUG "Validating that canary file \"${CANARY_FILE}\" exist to prevent accidents"
 	if ! [[ -f "${CANARY_FILE}" ]]; then
 		log ERROR "Specified output directory is not empty and doesn't contain canary file"
+	fi
+fi
+
+log DEBUG "Checking if custom ordering is explicitly enabled or if default file exist"
+if ${CUSTOM_ORDERING} || [[ -f "${ORDER_FILE}" ]]; then
+	CUSTOM_ORDERING="true"
+
+	log DEBUG "Checking if specified custom order file \"${ORDER_FILE}\" exist"
+	if ! [[ -f "${VARIABLES_FILE}" ]]; then
+		log ERROR "Specified custom order file \"${ORDER_FILE}\" doesn't exist"
 	fi
 fi
 
@@ -345,8 +362,15 @@ log DEBUG "Checking if merged presentation index file should be created"
 if ! ${RENDER_PARTIAL} && ! [[ -f "${WORK_DIRECTORY}/index.md" ]]; then
 	log INFO "Merging presentation Markdown files as \"index.md\" doesn't exist"
 
+	if ${CUSTOM_ORDERING}; then
+		MARKDOWN_FILES="$(cat "${ORDER_FILE}" | grep --invert-match -e '^$' -e '^#')"
+		log DEBUG "Rendering using custom order: $(echo "${MARKDOWN_FILES}" | tr '\n' ' ')"
+	else
+		MARKDOWN_FILES="${WORK_DIRECTORY}"/*.md
+	fi
+
 	FIRST_MARKDOWN_FILE_PROCESSED="false"
-	for MARKDOWN_FILE in "${WORK_DIRECTORY}"/*.md; do
+	for MARKDOWN_FILE in ${MARKDOWN_FILES}; do
 		log DEBUG "Merging data from presentation file \"${MARKDOWN_FILE}\""
 
 		if ! ${FIRST_MARKDOWN_FILE_PROCESSED}; then
