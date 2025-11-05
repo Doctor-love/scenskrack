@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-FileCopyrightText: 2024 Joel Rangsmo <joel@rangsmo.se>
+# SPDX-FileCopyrightText: 2025 Joel Rangsmo <joel@rangsmo.se>
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 set -o pipefail -o errexit
@@ -209,7 +209,7 @@ if ${CUSTOM_ORDERING} || [[ -f "${ORDER_FILE}" ]]; then
 	CUSTOM_ORDERING="true"
 
 	log DEBUG "Checking if specified custom order file \"${ORDER_FILE}\" exist"
-	if ! [[ -f "${VARIABLES_FILE}" ]]; then
+	if ! [[ -f "${ORDER_FILE}" ]]; then
 		log ERROR "Specified custom order file \"${ORDER_FILE}\" doesn't exist"
 	fi
 fi
